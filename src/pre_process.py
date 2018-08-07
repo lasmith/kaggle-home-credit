@@ -4,6 +4,10 @@ import pandas as pd
 import numpy as np
 import gc
 
+from parso.python import prefix
+from sklearn import preprocessing
+from sklearn.preprocessing import StandardScaler
+
 logger = logging.getLogger(__name__)
     
 def load_bureau_data(in_dir):
@@ -130,6 +134,68 @@ def load_pos_data(in_dir):
     gc.collect()
     return avg_pos
 
+def load_train_test_data_factorize(in_dir):
+    logger.debug('Read data and test')
+    data = pd.read_csv(in_dir + '/application_train.csv')
+    test = pd.read_csv(in_dir + '/application_test.csv')
+    logger.debug('Data Shape: %s, Test Shape: %s' % (data.shape, test.shape))
+    y = data['TARGET']
+    del data['TARGET']
+    categorical_feats = [
+        f for f in data.columns if data[f].dtype == 'object'
+    ]
+    logger.debug(categorical_feats)
+    for f_ in categorical_feats:
+        data[f_], indexer = pd.factorize(data[f_])
+        test[f_] = indexer.get_indexer(test[f_])
+    return data, test, y
+
+def fix_missing_cols(in_train, in_test):
+    missing_cols = set( in_train.columns ) - set( in_test.columns )
+    # Add a missing column in test set with default value equal to 0
+    for c in missing_cols:
+        in_test[c] = 0
+    # Ensure the order of column in the test set is in the same order than in train set
+    in_test = in_test[in_train.columns]
+    return in_test
+
+def load_train_test_data(in_dir, in_cols=None):
+    logger.debug('Reading train and test data')
+    df_train_pre = pd.read_csv(in_dir + '/application_train.csv')
+    df_test_pre = pd.read_csv(in_dir + '/application_test.csv')
+    logger.debug('Data Shape Pre-filter: %s, Test Shape: %s' % (df_train_pre.shape, df_test_pre.shape))
+    y = df_train_pre['TARGET']
+    del df_train_pre['TARGET']
+    df_train = df_train_pre[in_cols]
+    df_test = df_test_pre#[in_cols]
+    logger.debug('Data Shape: %s, Test Shape: %s' % (df_train.shape, df_test.shape))
+    logger.debug("Loaded training and test data")
+    return df_train, df_test, y
+
+def load_data_dummies(in_df_train, in_df_test):
+    df_train = in_df_train
+    df_test = in_df_test
+    categorical_feats = [
+        f for f in df_train.columns if df_train[f].dtype == 'object'
+    ]
+    logger.debug(categorical_feats)
+    for f_ in categorical_feats:
+        prefix=f_
+        df_train = pd.concat([df_train, pd.get_dummies(df_train[f_], prefix=prefix)], axis=1).drop(f_, axis=1)
+        df_test = pd.concat([df_test, pd.get_dummies(df_test[f_], prefix=prefix)], axis=1).drop(f_, axis=1)
+        df_test = fix_missing_cols(df_train, df_test)
+    return df_train, df_test
+
+def normalize_numericals(df, cols):
+    for c in cols:
+        df[c] = df[c].fillna(0)
+    df_to_norm = df[cols]
+    df_arr = preprocessing.normalize(df_to_norm)
+    for c in cols:
+        del df[c]
+    df_to_norm = pd.DataFrame(df_arr, columns=cols)
+    return pd.concat([df, df_to_norm], sort=False, axis=1)
+
 
 def load_model(in_dir):
     """
@@ -153,21 +219,7 @@ def load_model(in_dir):
 
     avg_inst = load_installments_data(in_dir)
 
-    logger.debug('Read data and test')
-    data = pd.read_csv(in_dir + '/application_train.csv')
-    test = pd.read_csv(in_dir + '/application_test.csv')
-    logger.debug('Data Shape: %s, Test Shape: %s' %(data.shape, test.shape))
-
-    y = data['TARGET']
-    del data['TARGET']
-
-    categorical_feats = [
-        f for f in data.columns if data[f].dtype == 'object'
-    ]
-    logger.debug(categorical_feats)
-    for f_ in categorical_feats:
-        data[f_], indexer = pd.factorize(data[f_])
-        test[f_] = indexer.get_indexer(test[f_])
+    data, test, y = load_train_test_data_factorize(in_dir)
 
     data = data.merge(right=avg_buro.reset_index(), how='left', on='SK_ID_CURR')
     test = test.merge(right=avg_buro.reset_index(), how='left', on='SK_ID_CURR')
@@ -188,3 +240,4 @@ def load_model(in_dir):
     gc.collect()
 
     return data, test, y
+
