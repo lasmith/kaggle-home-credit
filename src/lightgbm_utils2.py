@@ -6,6 +6,8 @@ def save_data_set(df, file_name):
     data.save_binary(file_name)
 
 
+# Default parameters for LightGBM. Some of these are the defaults, some are custom. The ones listed below are
+# largely the ones recommended in parameter tuning in the docs
 DEFAULT_PARAMETERS = {
     "n_estimators": 4000,
     "learning_rate": 0.03,
@@ -13,6 +15,8 @@ DEFAULT_PARAMETERS = {
     "colsample_bytree": 0.8,
     "subsample": 0.9,
     "max_depth": 6,
+    "max_bin": 255,
+    "num_iterations": 100,
     "min_data_in_leaf": 20,
     "reg_alpha": 0.1,
     "reg_lambda": 0.1,
@@ -21,7 +25,14 @@ DEFAULT_PARAMETERS = {
     "silent": -1,
     "verbose": -1,
     "objective": "regression",
-    "metric": ""
+    "metric": "",
+    "bagging_fraction": 1.0,
+    "bagging_freq": 0.0,
+    "lambda_l1": 0.0,
+    "lambda_l2": 0.0,
+    "min_gain_to_split": 0.0,
+    "feature_fraction": 1.0
+
 }
 
 
