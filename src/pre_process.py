@@ -18,7 +18,7 @@ def load_bureau_data(in_dir):
     """
     
     buro_bal = pd.read_csv(in_dir + '/bureau_balance.csv')
-    logger.debug('Bureau bal shape : %s' % buro_bal.shape)
+    logger.debug("Bureau bal shape : %s" % str(buro_bal.shape))
 
     logger.debug('One hot encoding bureau balances status')
     buro_bal = pd.concat([buro_bal, pd.get_dummies(buro_bal.STATUS, prefix='buro_bal_status')], axis=1).drop('STATUS',
@@ -48,7 +48,7 @@ def load_bureau_data(in_dir):
     del buro_credit_active_dum, buro_credit_currency_dum, buro_credit_type_dum
     gc.collect()
 
-    logger.debug('Merge with buro avg')
+    logger.debug('Merge with bureau avg')
     buro_full = buro_full.merge(right=avg_buro_bal.reset_index(), how='left', on='SK_ID_BUREAU',
                                 suffixes=('', '_bur_bal'))
 
@@ -63,7 +63,7 @@ def load_bureau_data(in_dir):
     del buro, buro_full
     gc.collect()
 
-    return avg_buro
+    return avg_buro.fillna(0)
 
 def load_previous_applications(in_dir):
     """
@@ -91,8 +91,7 @@ def load_previous_applications(in_dir):
     logger.debug(avg_prev.head())
     del prev
     gc.collect()
-
-    return avg_prev
+    return avg_prev.fillna(0)
 
 
 def load_installments_data(in_dir):
@@ -102,7 +101,7 @@ def load_installments_data(in_dir):
     inst['SK_ID_PREV'] = inst['SK_ID_CURR'].map(nb_prevs['SK_ID_PREV'])
     avg_inst = inst.groupby('SK_ID_CURR').mean()
     avg_inst.columns = ['inst_' + f_ for f_ in avg_inst.columns]
-    return avg_inst
+    return avg_inst.fillna(0)
 
 
 def load_credit_card_data(in_dir):
@@ -117,7 +116,7 @@ def load_credit_card_data(in_dir):
     avg_cc_bal.columns = ['cc_bal_' + f_ for f_ in avg_cc_bal.columns]
     del cc_bal, nb_prevs
     gc.collect()
-    return avg_cc_bal
+    return avg_cc_bal.fillna(0)
 
 
 def load_pos_data(in_dir):
@@ -132,7 +131,7 @@ def load_pos_data(in_dir):
     avg_pos = pos.groupby('SK_ID_CURR').mean()
     del pos, nb_prevs
     gc.collect()
-    return avg_pos
+    return avg_pos.fillna(0)
 
 def load_train_test_data_factorize(in_dir):
     logger.debug('Read data and test')
@@ -166,8 +165,12 @@ def load_train_test_data(in_dir, in_cols=None):
     logger.debug('Data Shape Pre-filter: %s, Test Shape: %s' % (df_train_pre.shape, df_test_pre.shape))
     y = df_train_pre['TARGET']
     del df_train_pre['TARGET']
-    df_train = df_train_pre[in_cols]
-    df_test = df_test_pre#[in_cols]
+    if in_cols:
+        df_train = df_train_pre[in_cols]
+        df_test = df_test_pre[in_cols]
+    else:
+        df_train = df_train_pre
+        df_test = df_test_pre
     logger.debug('Data Shape: %s, Test Shape: %s' % (df_train.shape, df_test.shape))
     logger.debug("Loaded training and test data")
     return df_train, df_test, y
@@ -196,6 +199,28 @@ def normalize_numericals(df, cols):
     df_to_norm = pd.DataFrame(df_arr, columns=cols)
     return pd.concat([df, df_to_norm], sort=False, axis=1)
 
+
+def append_data(df_test, df_train, in_dir, func):
+    df_additional = func(in_dir)
+    df_train = df_train.merge(right=df_additional.reset_index(), how='left', on='SK_ID_CURR')
+    df_test = df_test.merge(right=df_additional.reset_index(), how='left', on='SK_ID_CURR')
+    return df_train, df_test
+
+
+def append_bureau_data(in_dir, df_train, df_test):
+    return append_data(df_test, df_train, in_dir, load_bureau_data)
+
+def append_previous_applications(in_dir, df_train, df_test):
+    return append_data(df_test, df_train, in_dir, load_previous_applications)
+
+def append_pos_data(in_dir, df_train, df_test):
+    return append_data(df_test, df_train, in_dir, load_pos_data)
+
+def append_credit_card_data(in_dir, df_train, df_test):
+    return append_data(df_test, df_train, in_dir, load_credit_card_data)
+
+def append_installments_data(in_dir, df_train, df_test):
+    return append_data(df_test, df_train, in_dir, load_installments_data)
 
 def load_model(in_dir):
     """

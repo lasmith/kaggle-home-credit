@@ -57,7 +57,9 @@ class PreProcessTest(unittest.TestCase):
         df_to_test = normalize_numericals(df_train_enc, numerical_feats)
         df_to_test.sample(5)
 
-
+    def test_load_bureau_data(self):
+        df = load_bureau_data("./data")
+        self.assertIsNotNone(df)
 
 if __name__ == '__main__':
     unittest.main()
