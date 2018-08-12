@@ -63,5 +63,5 @@ def run_lightgbm_model(df_train, df_test, df_target, folds, feats, early_stoppin
         del clf, trn_x, trn_y, val_x, val_y
         gc.collect()
 
-    print('Overall AUC score %.6f' % roc_auc_score(df_target, df_fold_preds_test))
+    print('Overall AUC score %.6f' % roc_auc_score(df_target, df_fold_preds_train))
     return df_fold_preds_train, df_fold_preds_test, df_feature_importance
