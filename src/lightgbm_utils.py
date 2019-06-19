@@ -49,7 +49,7 @@ def run_lightgbm_model(df_train, df_test, df_target, folds, feats, early_stoppin
         val_x, val_y = df_train[feats].iloc[val_idx], df_target.iloc[val_idx]
 
         clf = LGBMClassifier(**args_dict)
-        clf.fit(trn_x, trn_y, eval_set=[(trn_x, trn_y), (val_x, val_y)], eval_metric='auc',
+        clf.fit(trn_x, trn_y, eval_set=[(trn_x, trn_y), (val_x, val_y)], eval_metric='[l1,l2]',
                 verbose=100, early_stopping_rounds=early_stopping)
 
         if save_model:
