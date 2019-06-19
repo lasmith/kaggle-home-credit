@@ -1,4 +1,4 @@
-kaggle-home-credit2
+kaggle-home-credit
 ==============================
 
 Regression to predict house prices for Kaggle

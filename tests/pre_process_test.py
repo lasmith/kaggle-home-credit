@@ -1,7 +1,7 @@
 import unittest
 import logging.config
 
-from src.pre_process import *
+from data.pre_process import *
 
 
 class PreProcessTest(unittest.TestCase):
