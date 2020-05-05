@@ -1,108 +1,161 @@
-.PHONY: clean data lint requirements sync_data_to_s3 sync_data_from_s3
+.PHONY: clean env-and-requirements test docker-build docker-push
 
 #################################################################################
-# GLOBALS                                                                       #
+#
+# Makefile to build the entire digital fingerprint module. Perhaps this could be Gradle:)
+#
 #################################################################################
 
-PROJECT_DIR := $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
-BUCKET = [OPTIONAL] your-bucket-for-syncing-data (do not include 's3://')
-PROFILE = default
-PROJECT_NAME = kaggle-home-credit
+NAMESPACE=kaggle
+SHELL := /bin/bash
+PROJECT_NAME = home-credit
 PYTHON_INTERPRETER = python3
+PYTHONPATH=./src/:./tests/src
 
-ifeq (,$(shell which conda))
-HAS_CONDA=False
+
+
+#################################################################################
+# Setup
+#################################################################################
+
+ifeq (,$(shell conda info --envs | grep $(PROJECT_NAME)))
+	HAS_CONDA_ENV=False
 else
-HAS_CONDA=True
+	HAS_CONDA_ENV=True
 endif
 
-#################################################################################
-# COMMANDS                                                                      #
-#################################################################################
+
+# If conda is available then run that, unless its overriden on the command line with FORCE_VENV=True
+ifeq (True, $(FORCE_VENV))
+	HAS_CONDA=False
+else ifeq (,$(shell which conda))
+	HAS_CONDA=False
+else
+	HAS_CONDA=True
+endif
+
+# In CI (alpine) we want to run pip3
+ifeq (True, $(CI))
+	PIP:=pip3
+else
+	PIP:=pip
+endif
+
+# Turn off conda to test venv setup (used by Gitlabs)
+#HAS_CONDA=False
+
+## Set up python interpreter environment. If Conda is installed this will be used, if not it will fall back to virtual env.
+create_environment:
+	@echo ">>> About to create environment: $(PROJECT_NAME)..."
+ifeq (True,$(HAS_CONDA))
+ifeq (True,$(HAS_CONDA_ENV))
+	@echo ">>> Detected conda, found existing conda environment."
+else
+	@echo ">>> Detected conda, creating conda environment."
+	( \
+	  conda create -m -y --name $(PROJECT_NAME) python=3.6; \
+	)
+endif
+else
+	@echo ">>> check python3 version"
+	( \
+		$(PYTHON_INTERPRETER) --version; \
+	)
+	@echo ">>> No conda detected, using VirtualEnv."
+	( \
+	    $(PIP) install -q virtualenv virtualenvwrapper; \
+	    virtualenv venv --python=$(PYTHON_INTERPRETER); \
+	)
+endif
+
+
+# Define utility variable to help calling Python from the virtual environment
+ifeq (True,$(HAS_CONDA))
+    ACTIVATE_ENV := source activate $(PROJECT_NAME)
+else
+    ACTIVATE_ENV := source venv/bin/activate
+endif
+
+# Execute python related functionalities from within the project's environment
+define execute_in_env
+	$(ACTIVATE_ENV) && $1
+endef
+
 
 ## Install Python Dependencies
-requirements: test_environment
-	$(PYTHON_INTERPRETER) -m pip install -U pip setuptools wheel
-	$(PYTHON_INTERPRETER) -m pip install -r requirements.txt
+environment: create_environment
+	$(call execute_in_env, which python)
+	# $(call execute_in_env, which $(PIP))
+	$(call execute_in_env, pip install -r ./requirements.txt)
+	$(call execute_in_env, pip install -U pytest)
+	# $(call execute_in_env, which $(PIP))
+	# $(call execute_in_env, $(PIP) install -r ./requirements.txt)
+	# $(call execute_in_env, $(PIP) install -U pytest)
 
-## Make Dataset
-data: requirements
-	$(PYTHON_INTERPRETER) src/data/make_dataset.py data/raw data/processed
 
-## Delete all compiled Python files
+
+#################################################################################
+# Clean
+#################################################################################
+
+## Clean any artifacts created
 clean:
-	find . -type f -name "*.py[co]" -delete
-	find . -type d -name "__pycache__" -delete
+	( \
+	  rm -Rf ./src/build; \
+	  rm -Rf ./src/kaggle-home-credit.egg-info; \
+	  rm -Rf ./src/dist; \
+	  rm -Rf ./venv; \
+	)
+
+
+#################################################################################
+# Test / Validate
+#################################################################################
+
+## Run the test suite
+test: environment
+	$(call execute_in_env, PYTHONPATH=${PYTHONPATH} $(PYTHON_INTERPRETER) -m pytest --junitxml=./build/test-results.xml)
+
+
+## Run test coverage
+coverage: environment
+	$(call execute_in_env, PYTHONPATH=${PYTHONPATH} python -m pytest --cov=digital_fingerprint)
 
 ## Lint using flake8
-lint:
-	flake8 src
+lint: environment
+	$(call execute_in_env, PYTHONPATH=${PYTHONPATH} flake8 src)
 
-## Upload Data to S3
-sync_data_to_s3:
-ifeq (default,$(PROFILE))
-	aws s3 sync data/ s3://$(BUCKET)/data/
-else
-	aws s3 sync data/ s3://$(BUCKET)/data/ --profile $(PROFILE)
-endif
-
-## Download Data from S3
-sync_data_from_s3:
-ifeq (default,$(PROFILE))
-	aws s3 sync s3://$(BUCKET)/data/ data/
-else
-	aws s3 sync s3://$(BUCKET)/data/ data/ --profile $(PROFILE)
-endif
-
-## Set up python interpreter environment
-create_environment:
-ifeq (True,$(HAS_CONDA))
-		@echo ">>> Detected conda, creating conda environment."
-ifeq (3,$(findstring 3,$(PYTHON_INTERPRETER)))
-	conda create --name $(PROJECT_NAME) python=3
-else
-	conda create --name $(PROJECT_NAME) python=2.7
-endif
-		@echo ">>> New conda env created. Activate with:\nsource activate $(PROJECT_NAME)"
-else
-	$(PYTHON_INTERPRETER) -m pip install -q virtualenv virtualenvwrapper
-	@echo ">>> Installing virtualenvwrapper if not already intalled.\nMake sure the following lines are in shell startup file\n\
-	export WORKON_HOME=$$HOME/.virtualenvs\nexport PROJECT_HOME=$$HOME/Devel\nsource /usr/local/bin/virtualenvwrapper.sh\n"
-	@bash -c "source `which virtualenvwrapper.sh`;mkvirtualenv $(PROJECT_NAME) --python=$(PYTHON_INTERPRETER)"
-	@echo ">>> New virtualenv created. Activate with:\nworkon $(PROJECT_NAME)"
-endif
 
 ## Test python environment is setup correctly
 test_environment:
 	$(PYTHON_INTERPRETER) test_environment.py
 
 #################################################################################
-# PROJECT RULES                                                                 #
+# Build
 #################################################################################
 
+# TODO: This breaks under Conda but need to fix relative dir to full path
+## Run the Python setup utils to package a source / binary package
+package: environment
+	# Run bdist to package
+	( pwd; \
+	  cd src; \
+      source ../venv/bin/activate && ${PYTHON_INTERPRETER} setup.py sdist; \
+	)
+	# Now copy the version tar to the latest version
+	( \
+	  rm -rf ./dist; \
+	  mv ./src/dist ./dist; \
+	  basename `ls  ./dist/*.gz`|xargs -I{} cp ./dist/{} ./dist/kaggle-home-credit.tar.gz \
+	)
 
 
 #################################################################################
-# Self Documenting Commands                                                     #
+# Help
 #################################################################################
 
 .DEFAULT_GOAL := help
-
 # Inspired by <http://marmelab.com/blog/2016/02/29/auto-documented-makefile.html>
-# sed script explained:
-# /^##/:
-# 	* save line in hold space
-# 	* purge line
-# 	* Loop:
-# 		* append newline + line to hold space
-# 		* go to next line
-# 		* if line starts with doc comment, strip comment character off and loop
-# 	* remove target prerequisites
-# 	* append hold space (+ newline) to line
-# 	* replace newline plus comments by `---`
-# 	* print line
-# Separate expressions are necessary because labels cannot be delimited by
-# semicolon; see <http://stackoverflow.com/a/11799865/1968>
 .PHONY: help
 help:
 	@echo "$$(tput bold)Available rules:$$(tput sgr0)"

@@ -33,7 +33,7 @@ class PreProcessTest(unittest.TestCase):
         print(str(df_test.shape))
         # TODO: Verify columns
 
-    def test_load_train_test_data(self):
+    def test_load_train_test_data_with_cols(self):
         cols = ['SK_ID_CURR',
                 'NAME_CONTRACT_TYPE',
                 'CODE_GENDER',
